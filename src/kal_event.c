@@ -49,10 +49,16 @@ uint8_t kal_event_wait(uint8_t event)
 
 void kal_event_set(uint8_t event)
 {
-    if (g_events[event] < 0xFF) g_events[event]++;
+    if (g_events[event] < 0xFF)
+    {
+        g_events[event]++;
+    }
 }
 
 void kal_event_clear(uint8_t event)
 {
-    if (g_events[event]) g_events[event]--;
+    if (g_events[event])
+    {
+        g_events[event]--;
+    }
 }

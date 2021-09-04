@@ -3,6 +3,14 @@
 
 #include <stdint.h>
 
+enum {
+    KAL_EVENT_ALL = 0,
+
+    KAL_EVENT_WAIT,
+
+    _KAL_EVENT_USER_START,
+};
+
 #define KAL_EVENT_ALL 0xFF
 
 void kal_event_open(uint8_t nb_events);
