@@ -7,44 +7,70 @@ typedef struct {
 } kal_timer_ctx_t;
 
 static kal_timer_ctx_t g_timer = {
-                                  .first = NULL,
+    .first = NULL,
 };
 
 static void kal_timer_wrap(void* param);
 static void kal_timer_expired(void* param);
 
-// Add a timer in the list
-static void kal_timer_add(kal_timer_t* timer_to_add)
-{
-    // Add it in first place for simplicity's sake
-    timer_to_add->next = g_timer.first;
-    g_timer.first = timer_to_add;
-}
-
-// Remove specified timer from the list
-static void kal_timer_remove(kal_timer_t* timer_to_remove)
+// Add a timer in the list if no already in
+__inline static void kal_timer_add(kal_timer_t* timer_to_add)
 {
     kal_timer_t* timer = g_timer.first;
-    kal_timer_t* timer_previous = NULL;
+
+    if (!g_timer.first)
+    {
+        // List is empty
+        g_timer.first = timer_to_add;
+        return;
+    }
 
     while (timer != NULL)
     {
-        if (timer == timer_to_remove)
+        if (timer_to_add == timer)
         {
-            // First timer in list
-            if (!timer_previous)
-            {
-                g_timer.first = timer->next;
-            }
-            // Other timer
-            else
-            {
-                timer_previous->next = timer->next;
-            }
-            break;
+            // Already in list
+            return;
         }
 
-        timer_previous = timer;
+        if (!timer->next)
+        {
+            // Reached end of list, append
+            timer->next = timer_to_add;
+            return;
+        }
+    }
+}
+
+__inline bool kal_timer_is_expired(int32_t wraps, uint16_t ti, uint16_t hal_time)
+{
+    return (((wraps < 0) || (!wraps && ti <= hal_time)));
+}
+
+__inline bool kal_timer_is_schedulable(int32_t wraps, uint16_t ti, uint16_t hal_time)
+{
+    return (!wraps && (ti > hal_time));
+}
+
+static void kal_timer_execute(void)
+{
+    kal_timer_t* timer = g_timer.first;
+
+    // Look up all expired timers
+    while (timer != NULL)
+    {
+        // Timer is expired
+        if (KAL_TIMER_STATE_EXPIRED == timer->state)
+        {
+            timer->state = KAL_TIMER_STATE_STOPPED;
+
+            // Execute action
+            if (timer->action)
+            {
+                timer->action(timer->param);
+            }
+        }
+
         timer = timer->next;
     }
 }
@@ -54,46 +80,58 @@ static void kal_timer_schedule_next(void)
 {
     kal_timer_t* timer = g_timer.first;
     kal_timer_t* timer_to_schedule = NULL;
-    uint16_t hal_time = hal_timer_get_time(HAL_TIMER_0);
+    bool timer_expired = false;
+    uint16_t hal_time;
 
+    // Stop ongoing timer
+    hal_timer_stop(HAL_TIMER_0, HAL_TIMER_INT_1);
+
+    hal_time = hal_timer_get_time(HAL_TIMER_0);
+
+    // TODO: Remove stopped timers from list?
+
+    // Search for timer to schedule
     while (timer != NULL)
     {
-        // Timer is available for scheduling
-        if (!timer->wraps)
+        if (KAL_TIMER_STATE_RUNNING == timer->state)
         {
-            // Timer is expired
-            if (timer->ti <= hal_time)
-            {
-                // Execute action
-                if (timer->action)
-                {
-                    timer->action(timer->param);
-                }
+            // Save value to avoid wrap interrupt changing it while we check it
+            int32_t wraps = timer->wraps;
 
-                kal_timer_remove(timer);
-            }
-            // No timer scheduled yet
-            else if (!timer_to_schedule)
+            // Timer is expired
+            if (kal_timer_is_expired(wraps, timer->ti, hal_time))
             {
-                timer_to_schedule = timer;
+                timer->state = KAL_TIMER_STATE_EXPIRED;
+                timer_expired = true;
             }
-            // Current timer expires before scheduled timer
-            else if (timer->ti < timer_to_schedule->ti)
+            else if (kal_timer_is_schedulable(wraps, timer->ti, hal_time))
             {
-                timer_to_schedule = timer;
+                // No timer scheduled yet
+                if (!timer_to_schedule)
+                {
+                    timer_to_schedule = timer;
+                }
+                // Current timer expires before scheduled timer
+                else if (timer->ti < timer_to_schedule->ti)
+                {
+                    timer_to_schedule = timer;
+                }
             }
         }
 
         timer = timer->next;
     }
 
+    // At least one timer is expired
+    if (timer_expired)
+    {
+        // Execute all expired timers
+        kal_timer_execute();
+    }
+
     if (timer_to_schedule)
     {
         hal_timer_start(HAL_TIMER_0, HAL_TIMER_INT_1, HAL_TIMER_MODE_ONE_SHOT, kal_timer_expired, timer_to_schedule, timer_to_schedule->ti - hal_time);
-    }
-    else
-    {
-        hal_timer_stop(HAL_TIMER_0, HAL_TIMER_INT_1);
     }
 }
 
@@ -105,14 +143,12 @@ static void kal_timer_wrap(void* param)
 
     while (timer != NULL)
     {
-        if (timer->wraps)
-        {
-            timer->wraps--;
+        timer->wraps--;
 
-            if (!timer->wraps)
-            {
-                reschedule = true;
-            }
+        if (!timer->wraps)
+        {
+            // Timer completed its wraps
+            reschedule = true;
         }
 
         timer = timer->next;
@@ -127,15 +163,8 @@ static void kal_timer_wrap(void* param)
 // Callback on expired timer
 static void kal_timer_expired(void* param)
 {
-    kal_timer_t* timer = (kal_timer_t*)param;
-
-    // Execute action
-    if (timer->action)
-    {
-        timer->action(timer->param);
-    }
-
-    kal_timer_stop(timer);
+    // This will execute expired timers and schedule the next one
+    kal_timer_schedule_next();
 }
 
 void kal_timer_open(void)
@@ -162,6 +191,7 @@ void kal_timer_start(kal_timer_t* timer, hal_isr_t action, void* param, uint32_t
     // Save action and parameter
     timer->action = action;
     timer->param = param;
+    timer->state = KAL_TIMER_STATE_RUNNING;
 
     // Number of timer wraps before timer can be scheduled
     timer->wraps = (ti / 0x10000);
@@ -169,20 +199,17 @@ void kal_timer_start(kal_timer_t* timer, hal_isr_t action, void* param, uint32_t
     // Remaining ticks after all the timer wraps
     timer->ti = (ti % 0x10000);
 
-    // Remove timer form list in case it is already here
-    kal_timer_remove(timer);
-
     // Add it
     kal_timer_add(timer);
 
-    // Schedule next
+    // Schedule
     kal_timer_schedule_next();
 }
 
 void kal_timer_stop(kal_timer_t* timer)
 {
-    // Remove from list
-    kal_timer_remove(timer);
+    // Flag as stopped
+    timer->state = KAL_TIMER_STATE_STOPPED;
 
     // Reschedule
     kal_timer_schedule_next();

@@ -3,9 +3,16 @@
 
 #include <stdint.h>
 
+typedef enum {
+    KAL_TIMER_STATE_STOPPED,
+    KAL_TIMER_STATE_RUNNING,
+    KAL_TIMER_STATE_EXPIRED,
+} kal_timer_state_t;
+
 typedef struct kal_timer_t {
-    uint16_t ti;
-    uint32_t wraps;
+    uint32_t ti;
+    int32_t wraps;
+    kal_timer_state_t state;
     hal_isr_t action;
     void* param;
     struct kal_timer_t* next;
