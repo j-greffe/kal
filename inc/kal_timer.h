@@ -20,9 +20,9 @@ typedef struct kal_timer_t {
 
 void kal_timer_open(void);
 void kal_timer_close(void);
-//void kal_timer_init(kal_timer_t* timer, kal_timer_unit_t unit);
 void kal_timer_start(kal_timer_t* timer, hal_isr_t action, void* param, uint32_t ti);
 void kal_timer_stop(kal_timer_t* timer);
+void kal_timer_wait(uint32_t ti);
 
 
 #endif // _KAL_TIMER_H_

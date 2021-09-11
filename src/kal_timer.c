@@ -1,9 +1,11 @@
 #include <stdio.h>
 #include "hal.h"
 #include "kal_timer.h"
+#include "kal_event.h"
 
 typedef struct {
     kal_timer_t* first;
+    kal_timer_t wait;
 } kal_timer_ctx_t;
 
 static kal_timer_ctx_t g_timer = {
@@ -21,6 +23,7 @@ __inline static void kal_timer_add(kal_timer_t* timer_to_add)
     if (!g_timer.first)
     {
         // List is empty
+        timer_to_add->next = NULL;
         g_timer.first = timer_to_add;
         return;
     }
@@ -36,9 +39,12 @@ __inline static void kal_timer_add(kal_timer_t* timer_to_add)
         if (!timer->next)
         {
             // Reached end of list, append
+            timer_to_add->next = NULL;
             timer->next = timer_to_add;
             return;
         }
+
+        timer = timer->next;
     }
 }
 
@@ -213,5 +219,11 @@ void kal_timer_stop(kal_timer_t* timer)
 
     // Reschedule
     kal_timer_schedule_next();
+}
+
+void kal_timer_wait(uint32_t ti)
+{
+    kal_timer_start(&g_timer.wait, (hal_isr_t)kal_event_set, (void*)KAL_EVENT_WAIT, ti);
+    kal_event_wait(KAL_EVENT_WAIT);
 }
 

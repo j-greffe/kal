@@ -4,5 +4,6 @@
 #include "kal_dbg.h"
 #include "kal_event.h"
 #include "kal_timer.h"
+#include "kal_utils.h"
 
 #endif // _KAL_H_
