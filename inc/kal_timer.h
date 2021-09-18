@@ -10,7 +10,8 @@ typedef enum {
 } kal_timer_state_t;
 
 typedef struct kal_timer_t {
-    uint32_t ti;
+    uint8_t id;
+    uint32_t qti;
     int32_t wraps;
     kal_timer_state_t state;
     hal_isr_t action;
